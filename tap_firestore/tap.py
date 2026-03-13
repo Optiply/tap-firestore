@@ -44,28 +44,16 @@ class TapFirestore(Tap):
             th.DateTimeType,
             description="Earliest received_at value to sync on first run.",
         ),
-        # Firebase service account
+        # Firebase service account — only fields actually used by google-auth
         th.Property("project_id", th.StringType, required=True),
         th.Property("private_key_id", th.StringType, required=True),
         th.Property("private_key", th.StringType, required=True),
         th.Property("client_email", th.StringType, required=True),
-        th.Property("client_id", th.StringType, required=True),
-        th.Property(
-            "auth_uri",
-            th.StringType,
-            default="https://accounts.google.com/o/oauth2/auth",
-        ),
         th.Property(
             "token_uri",
             th.StringType,
             default="https://oauth2.googleapis.com/token",
         ),
-        th.Property(
-            "auth_provider_x509_cert_url",
-            th.StringType,
-            default="https://www.googleapis.com/oauth2/v1/certs",
-        ),
-        th.Property("client_x509_cert_url", th.StringType),
     ).to_dict()
 
     def _init_firestore(self):
@@ -78,21 +66,9 @@ class TapFirestore(Tap):
                     "private_key_id": self.config["private_key_id"],
                     "private_key": self.config["private_key"],
                     "client_email": self.config["client_email"],
-                    "client_id": self.config["client_id"],
-                    "auth_uri": self.config.get(
-                        "auth_uri",
-                        "https://accounts.google.com/o/oauth2/auth",
-                    ),
                     "token_uri": self.config.get(
                         "token_uri",
                         "https://oauth2.googleapis.com/token",
-                    ),
-                    "auth_provider_x509_cert_url": self.config.get(
-                        "auth_provider_x509_cert_url",
-                        "https://www.googleapis.com/oauth2/v1/certs",
-                    ),
-                    "client_x509_cert_url": self.config.get(
-                        "client_x509_cert_url", ""
                     ),
                 }
             )
