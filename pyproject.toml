@@ -10,9 +10,11 @@ keywords = [
 license = "Apache 2.0"
 
 [tool.poetry.dependencies]
-python = "<3.11,>=3.6.2"
+python = ">=3.9,<3.11"
 requests = "^2.25.1"
 singer-sdk = "^0.4.2"
+firebase-admin = "^7.2.0"
+typing-extensions = ">=4.4.0"
 
 [tool.poetry.dev-dependencies]
 pytest = "^6.2.5"
