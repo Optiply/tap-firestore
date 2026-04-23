@@ -1,4 +1,4 @@
-"""Base stream class for tap-firestore — reads incrementally from the `changes` collection."""
+"""Base Firestore stream class used by the reusable extension package."""
 
 from datetime import datetime
 from typing import Any, Iterable, Optional, Tuple, Union
@@ -29,9 +29,41 @@ class ChangesStream(Stream):
         db: Any,
         name: Optional[str] = None,
         schema=None,
+        entity_name: Optional[str] = None,
+        state_stream_name: Optional[str] = None,
+        start_date: Optional[Any] = None,
+        source_config: Optional[dict] = None,
+        raw_payload: bool = False,
     ) -> None:
         super().__init__(name=name, schema=schema, tap=tap)
         self.db = db
+        if entity_name:
+            self.entity_type = entity_name
+        self.state_stream_name = state_stream_name or self.name
+        self.start_date = start_date
+        self.raw_payload = raw_payload
+        if source_config:
+            self._config = {**dict(tap.config), **source_config}
+
+    @property
+    def stream_state(self) -> dict:
+        """Return writable state using the configured bookmark namespace."""
+        from singer_sdk.helpers._state import get_writeable_state_dict
+
+        return get_writeable_state_dict(self.tap_state, self.state_stream_name)
+
+    def get_context_state(self, context: Optional[dict]) -> dict:
+        """Return writable state for the configured bookmark namespace."""
+        state_partition_context = self._get_state_partition_context(context)
+        if state_partition_context:
+            from singer_sdk.helpers._state import get_writeable_state_dict
+
+            return get_writeable_state_dict(
+                self.tap_state,
+                self.state_stream_name,
+                state_partition_context=state_partition_context,
+            )
+        return self.stream_state
 
     def get_records(
         self, context: Optional[dict]
@@ -39,11 +71,12 @@ class ChangesStream(Stream):
         from google.cloud.firestore_v1.base_query import FieldFilter
 
         tenant_id = self.config["tenant_id"]
+        collection_name = self.config.get("collection_name", "changes")
 
         # Resolve bookmark: last synced value or start_date fallback
         start_value = self.get_starting_replication_key_value(context)
         if start_value is None:
-            start_value = self.config.get("start_date")
+            start_value = self.start_date or self.config.get("start_date")
 
         start_dt: Optional[datetime] = None
         if start_value:
@@ -52,8 +85,17 @@ class ChangesStream(Stream):
             else:
                 start_dt = datetime.fromisoformat(str(start_value).replace("Z", "+00:00"))
 
+        self.logger.info(
+            "Receiver query collection='%s' entity='%s' tenant='%s' start='%s' state_stream='%s'",
+            collection_name,
+            self.entity_type,
+            tenant_id,
+            start_dt.isoformat() if start_dt else None,
+            self.state_stream_name,
+        )
+
         query = (
-            self.db.collection("changes")
+            self.db.collection(collection_name)
             .where(filter=FieldFilter("tenant_id", "==", tenant_id))
             .where(filter=FieldFilter("entity_type", "==", self.entity_type))
             .order_by("received_at")
@@ -83,7 +125,15 @@ class ChangesStream(Stream):
                     )
                     continue
 
-                record = to_json_safe(data)
+                if self.raw_payload:
+                    record = {
+                        "entity_type": change.get("entity_type"),
+                        "received_at": to_json_safe(change.get("received_at")),
+                        "payload": to_json_safe(payload),
+                    }
+                else:
+                    record = to_json_safe(data)
+                    record["entity_type"] = change.get("entity_type")
                 record["received_at"] = to_json_safe(change.get("received_at"))
                 record["action"] = change.get("action")
                 yield record
