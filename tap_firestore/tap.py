@@ -1,38 +1,19 @@
-"""Firestore tap class."""
+"""Generic Firestore tap for direct schema-file based usage."""
 
-from typing import List
+from typing import Dict, List
 
-import firebase_admin
-from firebase_admin import credentials
-from firebase_admin import firestore as fb_firestore
 from singer_sdk import Stream, Tap
 from singer_sdk import typing as th
 
-from tap_firestore.streams import (
-    OrdersStream,
-    ProductsStream,
-    PurchaseOrdersStream,
-    ReceiptsStream,
-    SuppliersStream,
-)
-
-# Maps entity names (from the tenant's `entities` list) to stream classes.
-ENTITY_STREAM_MAP = {
-    "products": ProductsStream,
-    "orders": OrdersStream,
-    "purchase_orders": PurchaseOrdersStream,
-    "receipts": ReceiptsStream,
-    "suppliers": SuppliersStream,
-}
+from tap_firestore.extension import FirestoreExtension
 
 
 class TapFirestore(Tap):
-    """Firestore tap — reads change events for a given tenant."""
+    """Direct Firestore tap wrapper using explicit stream config."""
 
     name = "tap-firestore"
 
     config_jsonschema = th.PropertiesList(
-        # Tenant
         th.Property(
             "tenant_id",
             th.StringType,
@@ -54,58 +35,114 @@ class TapFirestore(Tap):
             th.StringType,
             default="https://oauth2.googleapis.com/token",
         ),
+        th.Property(
+            "collection_name",
+            th.StringType,
+            default="changes",
+            description="Top-level Firestore collection holding receiver change documents.",
+        ),
+        th.Property(
+            "tap_streams",
+            th.CustomType(
+                {
+                    "type": "object",
+                    "additionalProperties": {
+                        "oneOf": [
+                            {"type": "string"},
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "entity_type": {"type": "string"},
+                                    "collection_name": {"type": "string"},
+                                    "schema_mode": {
+                                        "type": "string",
+                                        "enum": ["inherit", "file"],
+                                    },
+                                    "schema_file": {"type": "string"},
+                                    "primary_keys": {
+                                        "type": "array",
+                                        "items": {"type": "string"},
+                                    },
+                                },
+                                "additionalProperties": False,
+                            },
+                        ]
+                    },
+                }
+            ),
+            required=False,
+        ),
+        th.Property(
+            "receiver_only",
+            th.CustomType(
+                {
+                    "type": "object",
+                    "additionalProperties": {
+                        "oneOf": [
+                            {"type": "string"},
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "entity_type": {"type": "string"},
+                                    "schema_mode": {
+                                        "type": "string",
+                                        "enum": ["minimal", "file"],
+                                    },
+                                    "schema_file": {"type": "string"},
+                                    "primary_keys": {
+                                        "type": "array",
+                                        "items": {"type": "string"},
+                                    },
+                                    "extra_properties": {"type": "object"},
+                                },
+                                "additionalProperties": False,
+                            },
+                        ]
+                    },
+                }
+            ),
+            required=False,
+        ),
     ).to_dict()
 
-    def _init_firestore(self):
-        """Initialize Firebase app once and return a Firestore client."""
-        if not firebase_admin._apps:
-            cred = credentials.Certificate(
-                {
-                    "type": "service_account",
-                    "project_id": self.config["project_id"],
-                    "private_key_id": self.config["private_key_id"],
-                    "private_key": self.config["private_key"],
-                    "client_email": self.config["client_email"],
-                    "token_uri": self.config.get(
-                        "token_uri",
-                        "https://oauth2.googleapis.com/token",
-                    ),
-                }
-            )
-            firebase_admin.initialize_app(cred)
-        return fb_firestore.client()
+    def load_state(self, state):
+        """Preserve receiver extension state flags in addition to bookmarks."""
+        super().load_state(state)
+        if "force_full_sync" in state:
+            self.state["force_full_sync"] = list(state.get("force_full_sync", []))
 
     def discover_streams(self) -> List[Stream]:
-        """Validate tenant status and return one stream per enabled entity."""
-        db = self._init_firestore()
-        tenant_id = self.config["tenant_id"]
-
-        tenant_doc = db.collection("tenants").document(tenant_id).get()
-        if not tenant_doc.exists:
-            raise Exception(f"Tenant '{tenant_id}' not found in Firestore.")
-
-        tenant = tenant_doc.to_dict()
-        status = tenant.get("status")
-
-        if status != "active":
-            raise Exception(
-                f"Tenant '{tenant_id}' has status '{status}'. "
-                "Only active tenants can sync."
+        """Discover streams using explicit schema-file config."""
+        host_streams = [
+            _ConfiguredHostStream(
+                tap=self,
+                name=stream_name,
+                schema_file=stream_config["schema_file"],
+                primary_keys=stream_config.get("primary_keys", []),
             )
+            for stream_name, stream_config in FirestoreExtension(
+                tap=self,
+                config=dict(self.config),
+            ).get_tap_stream_configs().items()
+            if "schema_file" in stream_config
+        ]
+        extension = FirestoreExtension(tap=self, config=dict(self.config)).initialize()
+        return extension.discover_streams(host_streams)
 
-        entities = tenant.get("entities", [])
-        streams = []
-        for entity in entities:
-            stream_class = ENTITY_STREAM_MAP.get(entity)
-            if stream_class:
-                streams.append(stream_class(tap=self, db=db))
-            else:
-                self.logger.warning(
-                    "No stream class registered for entity '%s' — skipping.",
-                    entity,
-                )
 
-        return streams
+class _ConfiguredHostStream(Stream):
+    """Minimal host stream wrapper for direct tap-firestore usage."""
+
+    def __init__(
+        self,
+        tap: Tap,
+        *,
+        name: str,
+        schema_file: str,
+        primary_keys: List[str],
+    ) -> None:
+        super().__init__(tap=tap, name=name, schema=schema_file)
+        self.primary_keys = primary_keys
 
 
 if __name__ == "__main__":
