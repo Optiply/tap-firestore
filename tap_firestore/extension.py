@@ -182,15 +182,16 @@ class FirestoreExtension:
         """After a full sync, write receiver bookmarks so the next run uses Firestore."""
         import json
         import sys
-        from datetime import datetime, timezone
 
-        now = datetime.now(timezone.utc).isoformat()
+        configured = set(self.get_tap_stream_configs().keys())
         bookmarks = self.tap.state.setdefault("bookmarks", {})
         for stream_name in stream_names:
+            if stream_name not in configured:
+                continue
             receiver_name = self.get_prefixed_state_name(stream_name)
             bookmarks[receiver_name] = {
                 "replication_key": "received_at",
-                "replication_key_value": now,
+                "replication_key_value": "",
             }
         sys.stdout.write(json.dumps({"type": "STATE", "value": self.tap.state}) + "\n")
         sys.stdout.flush()
