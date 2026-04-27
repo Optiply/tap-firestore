@@ -1,5 +1,6 @@
 """Base Firestore stream class used by the reusable extension package."""
 
+import json
 from datetime import datetime
 from typing import Any, Iterable, Optional, Tuple, Union
 
@@ -134,6 +135,15 @@ class ChangesStream(Stream):
                 else:
                     record = to_json_safe(data)
                     record["entity_type"] = change.get("entity_type")
+
+                    schema_properties = set(self.schema.get("properties", {}).keys())
+                    extra = {
+                        k: to_json_safe(v)
+                        for k, v in (data or {}).items()
+                        if k not in schema_properties
+                    }
+                    record["extra_fields"] = json.dumps(extra) if extra else None
+
                 record["received_at"] = to_json_safe(change.get("received_at"))
                 record["action"] = change.get("action")
                 yield record

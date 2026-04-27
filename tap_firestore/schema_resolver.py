@@ -12,6 +12,7 @@ METADATA_PROPERTIES = {
     "entity_type": {"type": ["string", "null"]},
     "received_at": {"type": ["string", "null"], "format": "date-time"},
     "action": {"type": ["string", "null"]},
+    "extra_fields": {"type": ["string", "null"]},
 }
 
 
