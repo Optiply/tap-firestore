@@ -153,10 +153,11 @@ class FirestoreExtension:
 
     def should_use_receiver_tap_stream(self, stream_name: str) -> bool:
         """Return True when receiver should replace the host tap stream."""
-        return stream_name in self.tap.state.get("bookmarks", {})
+        return self.has_firestore_state(stream_name)
 
-    def apply_runtime_selection(self, streams_by_name: Dict[str, Any]) -> None:
-        """Select host or receiver variants at sync time based on state flags."""
+    def apply_runtime_selection(self, streams_by_name: Dict[str, Any]) -> List[str]:
+        """Select host or receiver variants at sync time. Returns names of streams doing full sync."""
+        full_sync_streams: List[str] = []
         for stream_name in self.get_tap_stream_configs():
             host_stream = streams_by_name.get(stream_name)
             receiver_name = self.get_prefixed_state_name(stream_name)
@@ -174,6 +175,25 @@ class FirestoreExtension:
             else:
                 self._set_stream_selected(host_stream, True)
                 self._set_stream_selected(receiver_stream, False)
+                full_sync_streams.append(stream_name)
+        return full_sync_streams
+
+    def write_post_full_sync_bookmarks(self, stream_names: List[str]) -> None:
+        """After a full sync, write receiver bookmarks so the next run uses Firestore."""
+        import json
+        import sys
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc).isoformat()
+        bookmarks = self.tap.state.setdefault("bookmarks", {})
+        for stream_name in stream_names:
+            receiver_name = self.get_prefixed_state_name(stream_name)
+            bookmarks[receiver_name] = {
+                "replication_key": "received_at",
+                "replication_key_value": now,
+            }
+        sys.stdout.write(json.dumps({"type": "STATE", "value": self.tap.state}) + "\n")
+        sys.stdout.flush()
 
     @staticmethod
     def _set_stream_selected(stream: Any, selected: bool) -> None:
