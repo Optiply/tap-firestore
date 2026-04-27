@@ -184,7 +184,7 @@ class FirestoreExtension:
         import sys
 
         configured = set(self.get_tap_stream_configs().keys())
-        bookmarks = self.tap.state.setdefault("bookmarks", {})
+        bookmarks = {}
         for stream_name in stream_names:
             if stream_name not in configured:
                 continue
@@ -193,8 +193,9 @@ class FirestoreExtension:
                 "replication_key": "received_at",
                 "replication_key_value": "",
             }
-        sys.stdout.write(json.dumps({"type": "STATE", "value": self.tap.state}) + "\n")
-        sys.stdout.flush()
+        if bookmarks:
+            sys.stdout.write(json.dumps({"type": "STATE", "value": {"bookmarks": bookmarks}}) + "\n")
+            sys.stdout.flush()
 
     @staticmethod
     def _set_stream_selected(stream: Any, selected: bool) -> None:
