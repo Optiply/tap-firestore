@@ -153,7 +153,7 @@ class FirestoreExtension:
 
     def should_use_receiver_tap_stream(self, stream_name: str) -> bool:
         """Return True when receiver should replace the host tap stream."""
-        return stream_name not in self.tap.state.get("force_full_sync", [])
+        return stream_name in self.tap.state.get("bookmarks", {})
 
     def apply_runtime_selection(self, streams_by_name: Dict[str, Any]) -> None:
         """Select host or receiver variants at sync time based on state flags."""
@@ -166,15 +166,14 @@ class FirestoreExtension:
             if not host_stream.selected and not receiver_stream.selected:
                 continue
 
-            if stream_name in self.tap.state.get("force_full_sync", []):
+            if self.should_use_receiver_tap_stream(stream_name):
+                self._set_stream_selected(host_stream, False)
+                self._set_stream_selected(receiver_stream, True)
+                for child_stream in getattr(host_stream, "child_streams", []):
+                    self._set_stream_selected(child_stream, False)
+            else:
                 self._set_stream_selected(host_stream, True)
                 self._set_stream_selected(receiver_stream, False)
-                continue
-
-            self._set_stream_selected(host_stream, False)
-            self._set_stream_selected(receiver_stream, True)
-            for child_stream in getattr(host_stream, "child_streams", []):
-                self._set_stream_selected(child_stream, False)
 
     @staticmethod
     def _set_stream_selected(stream: Any, selected: bool) -> None:
