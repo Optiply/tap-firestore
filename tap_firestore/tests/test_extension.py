@@ -208,6 +208,20 @@ def test_force_full_sync_disables_tap_stream_receiver():
     ]
 
 
+def test_runtime_selection_force_full_sync_activates_host():
+    _, extension = build_extension(state={"force_full_sync": ["orders"]})
+    parent = SimpleNamespace(selected=False, child_streams=[])
+    receiver = SimpleNamespace(selected=True)
+
+    full_sync_streams = extension.apply_runtime_selection(
+        {"orders": parent, "receiver_orders": receiver},
+    )
+
+    assert parent.selected is True
+    assert receiver.selected is False
+    assert full_sync_streams == ["orders"]
+
+
 def test_runtime_selection_activates_receiver_and_disables_host_children():
     _, extension = build_extension()
     child = SimpleNamespace(selected=True)

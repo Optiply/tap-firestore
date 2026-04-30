@@ -152,8 +152,9 @@ class FirestoreExtension:
         return f"receiver_{stream_name}"
 
     def should_use_receiver_tap_stream(self, stream_name: str) -> bool:
-        """Return True when receiver should replace the host tap stream."""
-        return self.has_firestore_state(stream_name)
+        """Return True unless state explicitly forces the host stream full sync."""
+        force_full_sync = self.tap.state.get("force_full_sync", [])
+        return stream_name not in force_full_sync
 
     def apply_runtime_selection(self, streams_by_name: Dict[str, Any]) -> List[str]:
         """Select host or receiver variants at sync time. Returns names of streams doing full sync."""
