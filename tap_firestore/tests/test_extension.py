@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from singer_sdk import Stream, Tap
 from singer_sdk import typing as th
 
+from tap_firestore.client import coerce_record_to_schema
 from tap_firestore.extension import FirestoreExtension
 from tap_firestore.mirror_stream import FirestoreMirrorStream
 from tap_firestore.schema_resolver import (
@@ -130,7 +131,9 @@ def test_inherit_schema_adds_receiver_metadata():
 
 def test_load_schema_file(tmp_path: Path):
     schema_path = tmp_path / "schema.json"
-    schema_path.write_text(json.dumps({"type": "object", "properties": {"id": {"type": "integer"}}}))
+    schema_path.write_text(
+        json.dumps({"type": "object", "properties": {"id": {"type": "integer"}}})
+    )
     assert load_schema_file(str(schema_path))["properties"]["id"]["type"] == "integer"
 
 
@@ -143,6 +146,32 @@ def test_build_minimal_receiver_schema():
     assert "received_at" in schema["properties"]
     assert "payload" in schema["properties"]
     assert "source" in schema["properties"]
+
+
+def test_coerce_record_to_schema_stringifies_complex_string_fields():
+    schema = {
+        "type": "object",
+        "properties": {
+            "idorder": {"type": ["integer", "null"]},
+            "picklists": {"type": ["string", "null"]},
+            "pricelists": {"type": ["string", "null"]},
+            "total": {"type": ["string", "null"]},
+        },
+    }
+    record = coerce_record_to_schema(
+        {
+            "idorder": 1,
+            "picklists": [{"idpicklist": 10}],
+            "pricelists": {"default": True},
+            "total": 12.5,
+        },
+        schema,
+    )
+
+    assert record["idorder"] == 1
+    assert record["picklists"] == json.dumps([{"idpicklist": 10}])
+    assert record["pricelists"] == json.dumps({"default": True})
+    assert record["total"] == "12.5"
 
 
 def test_first_run_uses_receiver_for_tap_streams():
@@ -188,7 +217,10 @@ def test_string_mapping_is_normalized_for_tap_and_receiver_only():
     assert extension.get_tap_stream_configs()["products"]["entity_type"] == "products"
 
     extension.config["receiver_only"] = {"deleted_orders": "orders_deleted"}
-    assert extension.get_receiver_only_configs()["deleted_orders"]["entity_type"] == "orders_deleted"
+    assert (
+        extension.get_receiver_only_configs()["deleted_orders"]["entity_type"]
+        == "orders_deleted"
+    )
 
 
 def test_force_full_sync_disables_tap_stream_receiver():
@@ -208,8 +240,59 @@ def test_force_full_sync_disables_tap_stream_receiver():
     ]
 
 
-def test_runtime_selection_force_full_sync_activates_host():
-    _, extension = build_extension(state={"force_full_sync": ["orders"]})
+def test_runtime_selection_without_receiver_state_activates_host_full_sync():
+    _, extension = build_extension()
+    child = SimpleNamespace(selected=True)
+    parent = SimpleNamespace(selected=False, child_streams=[child])
+    receiver = SimpleNamespace(selected=True)
+
+    full_sync_streams = extension.apply_runtime_selection(
+        {"orders": parent, "receiver_orders": receiver},
+    )
+
+    assert parent.selected is True
+    assert receiver.selected is False
+    assert child.selected is True
+    assert full_sync_streams == ["orders"]
+
+
+def test_runtime_selection_with_receiver_state_activates_receiver_and_disables_host_children():
+    _, extension = build_extension(
+        state={
+            "bookmarks": {
+                "receiver_orders": {
+                    "replication_key": "received_at",
+                    "replication_key_value": "",
+                }
+            }
+        }
+    )
+    child = SimpleNamespace(selected=True)
+    parent = SimpleNamespace(selected=True, child_streams=[child])
+    receiver = SimpleNamespace(selected=False)
+
+    full_sync_streams = extension.apply_runtime_selection(
+        {"orders": parent, "receiver_orders": receiver},
+    )
+
+    assert parent.selected is False
+    assert receiver.selected is True
+    assert child.selected is False
+    assert full_sync_streams == []
+
+
+def test_runtime_selection_force_full_sync_activates_host_even_with_receiver_state():
+    _, extension = build_extension(
+        state={
+            "bookmarks": {
+                "receiver_orders": {
+                    "replication_key": "received_at",
+                    "replication_key_value": "",
+                }
+            },
+            "force_full_sync": ["orders"],
+        }
+    )
     parent = SimpleNamespace(selected=False, child_streams=[])
     receiver = SimpleNamespace(selected=True)
 
@@ -220,17 +303,3 @@ def test_runtime_selection_force_full_sync_activates_host():
     assert parent.selected is True
     assert receiver.selected is False
     assert full_sync_streams == ["orders"]
-
-
-def test_runtime_selection_activates_receiver_and_disables_host_children():
-    _, extension = build_extension()
-    child = SimpleNamespace(selected=True)
-    parent = SimpleNamespace(selected=True, child_streams=[child])
-    receiver = SimpleNamespace(selected=False)
-
-    extension.apply_runtime_selection(
-        {"orders": parent, "receiver_orders": receiver},
-    )
-    assert parent.selected is False
-    assert receiver.selected is True
-    assert child.selected is False

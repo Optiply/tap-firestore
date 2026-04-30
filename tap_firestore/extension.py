@@ -37,7 +37,9 @@ class FirestoreExtension:
         self.tenant = self._validate_tenant()
         return self
 
-    def discover_streams(self, main_streams: Iterable[Any]) -> List[FirestoreMirrorStream]:
+    def discover_streams(
+        self, main_streams: Iterable[Any]
+    ) -> List[FirestoreMirrorStream]:
         """Create receiver-backed streams for tap replacements and receiver-only streams."""
         main_stream_map = {stream.name: stream for stream in main_streams}
         receiver_streams: List[FirestoreMirrorStream] = []
@@ -48,7 +50,9 @@ class FirestoreExtension:
                 raise ValueError(
                     f"Configured tap_stream '{stream_name}' was not found in host tap discovery."
                 )
-            primary_keys = stream_config.get("primary_keys") or list(host_stream.primary_keys)
+            primary_keys = stream_config.get("primary_keys") or list(
+                host_stream.primary_keys
+            )
             if not primary_keys:
                 raise ValueError(
                     f"Host stream '{stream_name}' does not define primary keys required for receiver mirroring."
@@ -59,7 +63,9 @@ class FirestoreExtension:
                     db=self.db,
                     name=self.get_prefixed_state_name(stream_name),
                     entity_name=stream_config.get("entity_type", stream_name),
-                    schema=self.resolve_tap_stream_schema(stream_name, stream_config, host_stream),
+                    schema=self.resolve_tap_stream_schema(
+                        stream_name, stream_config, host_stream
+                    ),
                     primary_keys=primary_keys,
                     state_stream_name=self.get_prefixed_state_name(stream_name),
                     start_date=self.config.get("start_date"),
@@ -75,7 +81,9 @@ class FirestoreExtension:
                     db=self.db,
                     name=stream_name,
                     entity_name=stream_config.get("entity_type", stream_name),
-                    schema=self.resolve_receiver_only_schema(stream_name, stream_config),
+                    schema=self.resolve_receiver_only_schema(
+                        stream_name, stream_config
+                    ),
                     primary_keys=stream_config.get("primary_keys", []),
                     state_stream_name=self.get_prefixed_state_name(stream_name),
                     start_date=self.config.get("start_date"),
@@ -152,9 +160,11 @@ class FirestoreExtension:
         return f"receiver_{stream_name}"
 
     def should_use_receiver_tap_stream(self, stream_name: str) -> bool:
-        """Return True unless state explicitly forces the host stream full sync."""
+        """Return True when receiver state exists and host sync is not forced."""
         force_full_sync = self.tap.state.get("force_full_sync", [])
-        return stream_name not in force_full_sync
+        return stream_name not in force_full_sync and self.has_firestore_state(
+            stream_name
+        )
 
     def apply_runtime_selection(self, streams_by_name: Dict[str, Any]) -> List[str]:
         """Select host or receiver variants at sync time. Returns names of streams doing full sync."""
@@ -195,7 +205,9 @@ class FirestoreExtension:
                 "replication_key_value": "",
             }
         if bookmarks:
-            sys.stdout.write(json.dumps({"type": "STATE", "value": {"bookmarks": bookmarks}}) + "\n")
+            sys.stdout.write(
+                json.dumps({"type": "STATE", "value": {"bookmarks": bookmarks}}) + "\n"
+            )
             sys.stdout.flush()
 
     @staticmethod
@@ -211,7 +223,9 @@ class FirestoreExtension:
         stream.selected = selected
 
     def _validate_config(self) -> None:
-        missing_keys = [key for key in self.REQUIRED_CONFIG_KEYS if not self.config.get(key)]
+        missing_keys = [
+            key for key in self.REQUIRED_CONFIG_KEYS if not self.config.get(key)
+        ]
         if missing_keys:
             raise ValueError(
                 "Missing required Firestore extension config values: "
@@ -250,7 +264,9 @@ class FirestoreExtension:
 
     def get_tap_stream_configs(self) -> Dict[str, Dict[str, Any]]:
         """Return normalized tap_stream configs."""
-        return self._normalize_stream_mapping(self.config.get("tap_streams", {}), "tap_streams")
+        return self._normalize_stream_mapping(
+            self.config.get("tap_streams", {}), "tap_streams"
+        )
 
     def get_receiver_only_configs(self) -> Dict[str, Dict[str, Any]]:
         """Return normalized receiver_only configs."""

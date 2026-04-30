@@ -12,6 +12,39 @@ from tap_firestore.serializer import to_json_safe
 PAGE_SIZE = 500
 
 
+def _schema_type_includes(schema_property: dict, expected_type: str) -> bool:
+    """Return True when a JSON Schema property accepts the expected type."""
+    property_type = schema_property.get("type")
+    if isinstance(property_type, str):
+        return property_type == expected_type
+    if isinstance(property_type, list):
+        return expected_type in property_type
+    return False
+
+
+def _coerce_value_for_schema(value: Any, schema_property: dict) -> Any:
+    """Coerce Firestore values to match schema shapes inherited from host taps."""
+    if value is None:
+        return None
+    if _schema_type_includes(schema_property, "string") and not isinstance(value, str):
+        if isinstance(value, (dict, list)):
+            return json.dumps(value)
+        return str(value)
+    return value
+
+
+def coerce_record_to_schema(record: dict, schema: dict) -> dict:
+    """Coerce known record fields to match their configured JSON Schema types."""
+    properties = schema.get("properties", {}) if isinstance(schema, dict) else {}
+    for field_name, schema_property in properties.items():
+        if field_name in record and isinstance(schema_property, dict):
+            record[field_name] = _coerce_value_for_schema(
+                record[field_name],
+                schema_property,
+            )
+    return record
+
+
 class ChangesStream(Stream):
     """Base stream that reads incrementally from the Firestore `changes` collection.
 
@@ -84,7 +117,9 @@ class ChangesStream(Stream):
             if isinstance(start_value, datetime):
                 start_dt = start_value
             else:
-                start_dt = datetime.fromisoformat(str(start_value).replace("Z", "+00:00"))
+                start_dt = datetime.fromisoformat(
+                    str(start_value).replace("Z", "+00:00")
+                )
 
         self.logger.info(
             "Receiver query collection='%s' entity='%s' tenant='%s' start='%s' state_stream='%s'",
@@ -133,7 +168,7 @@ class ChangesStream(Stream):
                         "payload": to_json_safe(payload),
                     }
                 else:
-                    record = to_json_safe(data)
+                    record = coerce_record_to_schema(to_json_safe(data), self.schema)
                     record["entity_type"] = change.get("entity_type")
 
                     schema_properties = set(self.schema.get("properties", {}).keys())
