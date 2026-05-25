@@ -17,7 +17,7 @@ class FirestoreExtension:
     """Attach Firestore-backed mirror streams to a host tap."""
 
     REQUIRED_CONFIG_KEYS = (
-        "tenant_id",
+        "tenant_uuid",
         "project_id",
         "private_key_id",
         "private_key",
@@ -243,16 +243,16 @@ class FirestoreExtension:
             )
 
     def _validate_tenant(self) -> Dict[str, Any]:
-        tenant_id = self.config["tenant_id"]
-        tenant_doc = self.db.collection("tenants").document(tenant_id).get()
+        tenant_uuid = self.config["tenant_uuid"]
+        tenant_doc = self.db.collection("tenants").document(tenant_uuid).get()
         if not tenant_doc.exists:
-            raise ValueError(f"Tenant '{tenant_id}' not found in Firestore.")
+            raise ValueError(f"Tenant '{tenant_uuid}' not found in Firestore.")
 
         tenant = tenant_doc.to_dict() or {}
         status = tenant.get("status")
         if status != "active":
             raise ValueError(
-                f"Tenant '{tenant_id}' has status '{status}'. Only active tenants can sync."
+                f"Tenant '{tenant_uuid}' has status '{status}'. Only active tenants can sync."
             )
         return tenant
 

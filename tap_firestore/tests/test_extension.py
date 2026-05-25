@@ -76,7 +76,7 @@ class FakeCollection:
     def __init__(self, tenant):
         self.tenant = tenant
 
-    def document(self, tenant_id):
+    def document(self, tenant_uuid):
         return FakeTenantDocument(self.tenant)
 
 
@@ -94,7 +94,7 @@ def build_extension(state=None):
     extension = FirestoreExtension(
         tap=tap,
         config={
-            "tenant_id": "tenant-1",
+            "tenant_uuid": "tenant-1",
             "project_id": "project-id",
             "private_key_id": "key-id",
             "private_key": "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----\n",

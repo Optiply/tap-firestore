@@ -104,7 +104,7 @@ class ChangesStream(Stream):
     ) -> Iterable[Union[dict, Tuple[dict, dict]]]:
         from google.cloud.firestore_v1.base_query import FieldFilter
 
-        tenant_id = self.config["tenant_id"]
+        tenant_uuid = self.config["tenant_uuid"]
         collection_name = self.config.get("collection_name", "changes")
 
         # Resolve bookmark: last synced value or start_date fallback
@@ -125,14 +125,14 @@ class ChangesStream(Stream):
             "Receiver query collection='%s' entity='%s' tenant='%s' start='%s' state_stream='%s'",
             collection_name,
             self.entity_type,
-            tenant_id,
+            tenant_uuid,
             start_dt.isoformat() if start_dt else None,
             self.state_stream_name,
         )
 
         query = (
             self.db.collection(collection_name)
-            .where(filter=FieldFilter("tenant_id", "==", tenant_id))
+            .where(filter=FieldFilter("tenant_uuid", "==", tenant_uuid))
             .where(filter=FieldFilter("entity_type", "==", self.entity_type))
             .order_by("received_at")
         )

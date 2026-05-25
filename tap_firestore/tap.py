@@ -15,10 +15,10 @@ class TapFirestore(Tap):
 
     config_jsonschema = th.PropertiesList(
         th.Property(
-            "tenant_id",
+            "tenant_uuid",
             th.StringType,
             required=True,
-            description="Firestore document ID of the tenant to sync.",
+            description="Firestore document ID/UUID of the tenant to sync.",
         ),
         th.Property(
             "start_date",
