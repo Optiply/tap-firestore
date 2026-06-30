@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, Iterable, List
 
 from tap_firestore.firebase_auth import get_firestore_client
@@ -32,6 +33,7 @@ class FirestoreExtension:
 
     def initialize(self) -> "FirestoreExtension":
         """Validate config, authenticate, and validate the tenant."""
+        self._log_env_debug()
         self._validate_config()
         self.db = get_firestore_client(self.config)
         self.tenant = self._validate_tenant()
@@ -221,6 +223,39 @@ class FirestoreExtension:
             stream._mask[()] = selected
             return
         stream.selected = selected
+
+    def _log_env_debug(self) -> None:
+        """Log Firestore-related environment variables for Hotglue debugging."""
+        explicit_keys = (
+            "firestore_private_key",
+            "FIRESTORE_PRIVATE_KEY",
+            "TAP_FIRESTORE_PRIVATE_KEY",
+            "TAP_FIRESTORE_CONFIG_PRIVATE_KEY",
+        )
+        firestore_env_keys = sorted(
+            key for key in os.environ if "FIRESTORE" in key.upper()
+        )
+        keys_to_log = sorted({*explicit_keys, *firestore_env_keys})
+
+        logger = getattr(self.tap, "logger", None)
+        if logger is None:
+            return
+
+        logger.warning(
+            "Firestore env debug: checking %s env var(s)",
+            len(keys_to_log),
+        )
+        for key in keys_to_log:
+            value = os.environ.get(key)
+            if value is None:
+                logger.warning("Firestore env debug: %s is NOT SET", key)
+            else:
+                logger.warning("Firestore env debug: %s=%s", key, value)
+
+        logger.warning(
+            "Firestore config debug: private_key=%s",
+            self.config.get("private_key", "NOT SET"),
+        )
 
     def _validate_config(self) -> None:
         missing_keys = [
