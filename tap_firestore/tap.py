@@ -26,10 +26,14 @@ class TapFirestore(Tap):
             description="Earliest received_at value to sync on first run.",
         ),
         # Firebase service account — only fields actually used by google-auth
-        th.Property("project_id", th.StringType, required=True),
-        th.Property("private_key_id", th.StringType, required=True),
-        th.Property("private_key", th.StringType, required=True),
-        th.Property("client_email", th.StringType, required=True),
+        th.Property("project_id", th.StringType, required=False),
+        th.Property("private_key_id", th.StringType, required=False),
+        th.Property("private_key", th.StringType, required=False),
+        th.Property("client_email", th.StringType, required=False),
+        th.Property("firestore_project_id", th.StringType, required=False),
+        th.Property("firestore_private_key_id", th.StringType, required=False),
+        th.Property("firestore_private_key", th.StringType, required=False),
+        th.Property("firestore_client_email", th.StringType, required=False),
         th.Property(
             "token_uri",
             th.StringType,

@@ -24,10 +24,16 @@ class FirestoreExtension:
         "private_key",
         "client_email",
     )
+    FIRESTORE_CONFIG_ALIASES = {
+        "project_id": "firestore_project_id",
+        "private_key_id": "firestore_private_key_id",
+        "private_key": "firestore_private_key",
+        "client_email": "firestore_client_email",
+    }
 
     def __init__(self, tap, config: Dict[str, Any]):
         self.tap = tap
-        self.config = config
+        self.config = self._with_firestore_aliases(config)
         self.db = None
         self.tenant = None
 
@@ -224,18 +230,68 @@ class FirestoreExtension:
             return
         stream.selected = selected
 
+    @classmethod
+    def _with_firestore_aliases(cls, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Hydrate legacy Firebase config keys from new config names or env vars."""
+        hydrated = dict(config)
+        for legacy_key, firestore_key in cls.FIRESTORE_CONFIG_ALIASES.items():
+            if hydrated.get(legacy_key):
+                hydrated[legacy_key] = cls._normalize_config_value(
+                    legacy_key,
+                    hydrated[legacy_key],
+                )
+                continue
+            if hydrated.get(firestore_key):
+                hydrated[legacy_key] = cls._normalize_config_value(
+                    legacy_key,
+                    hydrated[firestore_key],
+                )
+                continue
+            env_value = os.environ.get(firestore_key) or os.environ.get(
+                firestore_key.upper()
+            )
+            if env_value:
+                hydrated[legacy_key] = cls._normalize_config_value(
+                    legacy_key,
+                    env_value,
+                )
+        return hydrated
+
+    @staticmethod
+    def _normalize_config_value(key: str, value: Any) -> Any:
+        """Normalize config values coming from env vars."""
+        if key == "private_key" and isinstance(value, str):
+            return value.replace("\\n", "\n")
+        return value
+
     def _log_env_debug(self) -> None:
         """Log Firestore-related environment variables for Hotglue debugging."""
         explicit_keys = (
+            "firestore_project_id",
+            "firestore_private_key_id",
             "firestore_private_key",
+            "firestore_client_email",
+            "FIRESTORE_PROJECT_ID",
+            "FIRESTORE_PRIVATE_KEY_ID",
             "FIRESTORE_PRIVATE_KEY",
-            "TAP_FIRESTORE_PRIVATE_KEY",
-            "TAP_FIRESTORE_CONFIG_PRIVATE_KEY",
+            "FIRESTORE_CLIENT_EMAIL",
+            "apiCredentials",
+            "APICREDENTIALS",
+            "API_CREDENTIALS",
+            "tenant-config",
+            "TENANT-CONFIG",
+            "TENANT_CONFIG",
         )
-        firestore_env_keys = sorted(
-            key for key in os.environ if "FIRESTORE" in key.upper()
+        matched_env_keys = sorted(
+            key
+            for key in os.environ
+            if "FIRESTORE" in key.upper()
+            or "APICREDENTIALS" in key.upper()
+            or "API_CREDENTIALS" in key.upper()
+            or "TENANT-CONFIG" in key.upper()
+            or "TENANT_CONFIG" in key.upper()
         )
-        keys_to_log = sorted({*explicit_keys, *firestore_env_keys})
+        keys_to_log = sorted({*explicit_keys, *matched_env_keys})
 
         logger = getattr(self.tap, "logger", None)
         if logger is None:
@@ -252,10 +308,14 @@ class FirestoreExtension:
             else:
                 logger.warning("Firestore env debug: %s=%s", key, value)
 
-        logger.warning(
-            "Firestore config debug: private_key=%s",
-            self.config.get("private_key", "NOT SET"),
-        )
+        for legacy_key, firestore_key in self.FIRESTORE_CONFIG_ALIASES.items():
+            logger.warning(
+                "Firestore config debug: %s=%s; %s=%s",
+                legacy_key,
+                self.config.get(legacy_key, "NOT SET"),
+                firestore_key,
+                self.config.get(firestore_key, "NOT SET"),
+            )
 
     def _validate_config(self) -> None:
         missing_keys = [

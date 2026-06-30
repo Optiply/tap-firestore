@@ -174,6 +174,54 @@ def test_coerce_record_to_schema_stringifies_complex_string_fields():
     assert record["total"] == "12.5"
 
 
+def test_firestore_config_aliases_are_hydrated_from_config():
+    tap = DummyTap(config={})
+    extension = FirestoreExtension(
+        tap=tap,
+        config={
+            "tenant_uuid": "tenant-1",
+            "firestore_project_id": "project-id",
+            "firestore_private_key_id": "key-id",
+            "firestore_private_key": "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----\n",
+            "firestore_client_email": "test@example.com",
+            "tap_streams": {"orders": "orders"},
+            "receiver_only": {},
+        },
+    )
+
+    assert extension.config["project_id"] == "project-id"
+    assert extension.config["private_key_id"] == "key-id"
+    assert extension.config["private_key"].startswith("-----BEGIN PRIVATE KEY-----")
+    assert extension.config["client_email"] == "test@example.com"
+
+
+def test_firestore_config_aliases_are_hydrated_from_environment(monkeypatch):
+    monkeypatch.setenv("firestore_project_id", "project-id")
+    monkeypatch.setenv("firestore_private_key_id", "key-id")
+    monkeypatch.setenv(
+        "firestore_private_key",
+        "-----BEGIN PRIVATE KEY-----\\nabc\\n-----END PRIVATE KEY-----\\n",
+    )
+    monkeypatch.setenv("firestore_client_email", "test@example.com")
+
+    tap = DummyTap(config={})
+    extension = FirestoreExtension(
+        tap=tap,
+        config={
+            "tenant_uuid": "tenant-1",
+            "tap_streams": {"orders": "orders"},
+            "receiver_only": {},
+        },
+    )
+
+    assert extension.config["project_id"] == "project-id"
+    assert extension.config["private_key_id"] == "key-id"
+    assert extension.config["private_key"].startswith("-----BEGIN PRIVATE KEY-----")
+    assert "\\n" not in extension.config["private_key"]
+    assert "\nabc\n" in extension.config["private_key"]
+    assert extension.config["client_email"] == "test@example.com"
+
+
 def test_first_run_uses_receiver_for_tap_streams():
     _, extension = build_extension()
     tap = extension.tap
