@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Any, Dict, Iterable, List
 
@@ -306,16 +307,135 @@ class FirestoreExtension:
             if value is None:
                 logger.warning("Firestore env debug: %s is NOT SET", key)
             else:
-                logger.warning("Firestore env debug: %s=%s", key, value)
+                logger.warning(
+                    "Firestore env debug: %s=%s",
+                    key,
+                    self._format_debug_value(key, value),
+                )
 
         for legacy_key, firestore_key in self.FIRESTORE_CONFIG_ALIASES.items():
             logger.warning(
                 "Firestore config debug: %s=%s; %s=%s",
                 legacy_key,
-                self.config.get(legacy_key, "NOT SET"),
+                self._format_debug_value(legacy_key, self.config.get(legacy_key)),
                 firestore_key,
-                self.config.get(firestore_key, "NOT SET"),
+                self._format_debug_value(
+                    firestore_key,
+                    self.config.get(firestore_key),
+                ),
             )
+
+        self._log_json_file_debug(logger)
+
+    @classmethod
+    def _format_debug_value(cls, key: str, value: Any) -> str:
+        """Return a readable debug value with sensitive fields redacted."""
+        if value is None:
+            return "NOT SET"
+        if isinstance(value, str) and cls._is_sensitive_key(key):
+            return cls._redact_string(value)
+        return str(value)
+
+    @staticmethod
+    def _is_sensitive_key(key: str) -> bool:
+        normalized = key.lower().replace("-", "_")
+        return any(
+            token in normalized
+            for token in ("private_key", "password", "secret", "token", "api_key")
+        )
+
+    @staticmethod
+    def _redact_string(value: str, visible_chars: int = 12) -> str:
+        if not value:
+            return "<empty>"
+        normalized_value = value.replace("\n", "\\n")
+        if len(normalized_value) <= visible_chars * 2:
+            return "<redacted>"
+        return (
+            f"{normalized_value[:visible_chars]}..."
+            f"{normalized_value[-visible_chars:]}"
+            f" (len={len(value)})"
+        )
+
+    def _log_json_file_debug(self, logger: Any) -> None:
+        """Log accessible JSON files below the current working directory."""
+        root_dir = os.getcwd()
+        skipped_dirs = {".git", ".hg", ".svn", "__pycache__", ".venv", "venv"}
+        json_files = []
+        logger.warning("Firestore JSON debug: scanning for .json files under %s", root_dir)
+
+        for current_root, dirnames, filenames in os.walk(root_dir):
+            dirnames[:] = [dirname for dirname in dirnames if dirname not in skipped_dirs]
+            for filename in filenames:
+                if filename.lower().endswith(".json"):
+                    json_files.append(os.path.join(current_root, filename))
+
+        logger.warning("Firestore JSON debug: found %s .json file(s)", len(json_files))
+        for file_path in sorted(json_files):
+            self._log_json_file(logger, root_dir, file_path)
+
+    def _log_json_file(self, logger: Any, root_dir: str, file_path: str) -> None:
+        """Log metadata and sanitized content for a JSON file."""
+        relative_path = os.path.relpath(file_path, root_dir)
+        try:
+            size = os.path.getsize(file_path)
+            with open(file_path, "r", encoding="utf-8") as json_file:
+                raw_content = json_file.read()
+        except OSError as exc:
+            logger.warning(
+                "Firestore JSON debug: %s is not readable: %s",
+                relative_path,
+                exc,
+            )
+            return
+
+        logger.warning("Firestore JSON debug: %s size=%s bytes", relative_path, size)
+        try:
+            parsed_content = json.loads(raw_content)
+        except json.JSONDecodeError as exc:
+            logger.warning(
+                "Firestore JSON debug: %s is not valid JSON: %s",
+                relative_path,
+                exc,
+            )
+            return
+
+        if isinstance(parsed_content, dict):
+            logger.warning(
+                "Firestore JSON debug: %s top-level keys=%s",
+                relative_path,
+                sorted(parsed_content.keys()),
+            )
+        elif isinstance(parsed_content, list):
+            logger.warning(
+                "Firestore JSON debug: %s top-level list length=%s",
+                relative_path,
+                len(parsed_content),
+            )
+
+        sanitized_content = self._sanitize_json_debug_value(parsed_content)
+        serialized = json.dumps(sanitized_content, ensure_ascii=False, sort_keys=True)
+        if len(serialized) > 4000:
+            serialized = serialized[:4000] + "...<truncated>"
+        logger.warning(
+            "Firestore JSON debug: %s sanitized_content=%s",
+            relative_path,
+            serialized,
+        )
+
+    @classmethod
+    def _sanitize_json_debug_value(cls, value: Any, key: str = "") -> Any:
+        """Redact sensitive values in JSON debug output."""
+        if isinstance(value, dict):
+            return {
+                item_key: cls._sanitize_json_debug_value(item_value, item_key)
+                for item_key, item_value in value.items()
+            }
+        if isinstance(value, list):
+            return [cls._sanitize_json_debug_value(item) for item in value]
+        if isinstance(value, str) and cls._is_sensitive_key(key):
+            return cls._redact_string(value)
+        return value
 
     def _validate_config(self) -> None:
         missing_keys = [
