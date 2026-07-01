@@ -222,6 +222,89 @@ def test_firestore_config_aliases_are_hydrated_from_environment(monkeypatch):
     assert extension.config["client_email"] == "test@example.com"
 
 
+def test_initialize_defers_firestore_authentication_when_catalog_is_provided(monkeypatch):
+    def fail_get_firestore_client(config):
+        raise AssertionError("Firestore should not be initialized yet")
+
+    monkeypatch.setattr(
+        "tap_firestore.extension.get_firestore_client",
+        fail_get_firestore_client,
+    )
+    tap = DummyTap(config={})
+    tap._input_catalog = object()
+    extension = FirestoreExtension(
+        tap=tap,
+        config={
+            "tap_streams": {"orders": "orders"},
+            "receiver_only": {},
+        },
+    )
+
+    assert extension.initialize() is extension
+    assert extension.db is None
+    assert extension.tenant is None
+
+
+def test_runtime_selection_without_receiver_state_does_not_require_tenant_uuid(monkeypatch):
+    def fail_get_firestore_client(config):
+        raise AssertionError("Firestore should not be initialized for host full sync")
+
+    monkeypatch.setattr(
+        "tap_firestore.extension.get_firestore_client",
+        fail_get_firestore_client,
+    )
+    tap = DummyTap(config={})
+    tap._input_catalog = object()
+    extension = FirestoreExtension(
+        tap=tap,
+        config={
+            "tap_streams": {"orders": "orders"},
+            "receiver_only": {},
+        },
+    )
+    parent = SimpleNamespace(selected=False, child_streams=[])
+    receiver = SimpleNamespace(selected=True)
+
+    full_sync_streams = extension.apply_runtime_selection(
+        {"orders": parent, "receiver_orders": receiver},
+    )
+
+    assert parent.selected is True
+    assert receiver.selected is False
+    assert full_sync_streams == ["orders"]
+
+
+def test_runtime_selection_with_receiver_state_requires_tenant_uuid():
+    tap = DummyTap(
+        config={},
+        state={
+            "bookmarks": {
+                "receiver_orders": {
+                    "replication_key": "received_at",
+                    "replication_key_value": "",
+                }
+            }
+        },
+    )
+    tap._input_catalog = object()
+    extension = FirestoreExtension(
+        tap=tap,
+        config={
+            "tap_streams": {"orders": "orders"},
+            "receiver_only": {},
+        },
+    )
+    parent = SimpleNamespace(selected=True, child_streams=[])
+    receiver = SimpleNamespace(selected=False)
+
+    try:
+        extension.apply_runtime_selection({"orders": parent, "receiver_orders": receiver})
+    except ValueError as exc:
+        assert "firestore_extension.tenant_uuid" in str(exc)
+    else:
+        raise AssertionError("Expected missing tenant_uuid to fail for receiver sync")
+
+
 def test_first_run_uses_receiver_for_tap_streams():
     _, extension = build_extension()
     tap = extension.tap

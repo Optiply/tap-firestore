@@ -38,13 +38,33 @@ class FirestoreExtension:
         self.db = None
         self.tenant = None
 
-    def initialize(self) -> "FirestoreExtension":
-        """Validate config, authenticate, and validate the tenant."""
-        self._log_env_debug()
+    def initialize(self, *, force: bool = False) -> "FirestoreExtension":
+        """Validate config, authenticate, and validate the tenant when required."""
+        self._log_env_debug_once()
+        if self.db is not None and self.tenant is not None:
+            return self
+        if not force and self._can_defer_initialization():
+            logger = getattr(self.tap, "logger", None)
+            if logger is not None:
+                logger.warning(
+                    "Firestore init debug: deferring Firestore authentication during catalog-based sync."
+                )
+            return self
         self._validate_config()
         self.db = get_firestore_client(self.config)
         self.tenant = self._validate_tenant()
         return self
+
+    def _can_defer_initialization(self) -> bool:
+        """Return True when a provided catalog lets sync decide later if Firestore is needed."""
+        return getattr(self.tap, "input_catalog", None) is not None
+
+    def _log_env_debug_once(self) -> None:
+        """Log env debug output once per tap instance."""
+        if getattr(self.tap, "_firestore_env_debug_logged", False):
+            return
+        setattr(self.tap, "_firestore_env_debug_logged", True)
+        self._log_env_debug()
 
     def discover_streams(
         self, main_streams: Iterable[Any]
@@ -178,6 +198,7 @@ class FirestoreExtension:
     def apply_runtime_selection(self, streams_by_name: Dict[str, Any]) -> List[str]:
         """Select host or receiver variants at sync time. Returns names of streams doing full sync."""
         full_sync_streams: List[str] = []
+        firestore_streams_to_initialize: List[Any] = []
         for stream_name in self.get_tap_stream_configs():
             host_stream = streams_by_name.get(stream_name)
             receiver_name = self.get_prefixed_state_name(stream_name)
@@ -190,13 +211,36 @@ class FirestoreExtension:
             if self.should_use_receiver_tap_stream(stream_name):
                 self._set_stream_selected(host_stream, False)
                 self._set_stream_selected(receiver_stream, True)
+                firestore_streams_to_initialize.append(receiver_stream)
                 for child_stream in getattr(host_stream, "child_streams", []):
                     self._set_stream_selected(child_stream, False)
             else:
                 self._set_stream_selected(host_stream, True)
                 self._set_stream_selected(receiver_stream, False)
                 full_sync_streams.append(stream_name)
+
+        for stream_name in self.get_receiver_only_configs():
+            receiver_stream = streams_by_name.get(stream_name)
+            if receiver_stream is not None and receiver_stream.selected:
+                firestore_streams_to_initialize.append(receiver_stream)
+
+        if firestore_streams_to_initialize:
+            self._initialize_selected_firestore_streams(firestore_streams_to_initialize)
         return full_sync_streams
+
+    def _initialize_selected_firestore_streams(self, streams: List[Any]) -> None:
+        """Authenticate Firestore only once selected receiver streams need it."""
+        try:
+            self.initialize(force=True)
+        except ValueError as exc:
+            raise ValueError(
+                "Firestore receiver streams are selected, but Firestore cannot be initialized. "
+                "Ensure firestore_extension.tenant_uuid is set before using receiver streams."
+            ) from exc
+        for stream in streams:
+            stream.db = self.db
+            if hasattr(stream, "_config"):
+                stream._config = {**dict(self.tap.config), **self.config}
 
     def write_post_full_sync_bookmarks(self, stream_names: List[str]) -> None:
         """After a full sync, write receiver bookmarks so the next run uses Firestore."""
