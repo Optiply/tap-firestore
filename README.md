@@ -214,6 +214,8 @@ tap-firestore --config config.json --discover > catalog.json
 tap-firestore --config config.json --catalog catalog.json > output.singer
 ```
 
+When running `tap-firestore` directly, `tap_streams` entries must use `schema_mode: "file"` with `schema_file`, because there is no host tap stream to inherit a schema from. `schema_mode: "inherit"` is for extension usage inside another tap.
+
 ## Using as an extension in another tap
 
 This package exposes `FirestoreExtension` for host taps that want to replace selected full-sync streams with Firestore receiver streams after an initial sync.
