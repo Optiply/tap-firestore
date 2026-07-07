@@ -101,7 +101,6 @@ Expanded form:
   "tap_streams": {
     "orders": {
       "entity_type": "orders",
-      "collection_name": "picqer_changes",
       "schema_mode": "inherit",
       "primary_keys": ["idorder"]
     }
@@ -114,10 +113,11 @@ Supported `tap_streams` fields:
 | Field | Description |
 | --- | --- |
 | `entity_type` | Firestore `entity_type` value. Defaults to the stream name. |
-| `collection_name` | Per-stream collection override. |
 | `schema_mode` | `inherit` or `file`. Defaults to `inherit`. |
 | `schema_file` | JSON schema path when `schema_mode` is `file`. |
 | `primary_keys` | Primary keys for the receiver stream. Defaults to the host stream primary keys. |
+
+Use top-level `collection_name` to select the Firestore collection for all receiver streams in the config.
 
 When `schema_mode` is `inherit`, the receiver schema is copied from the host stream and enriched with:
 
@@ -237,15 +237,33 @@ class TapSomething(Tap):
 
     def discover_streams(self):
         main_streams = [OrdersStream(self), ProductsStream(self)]
-        extension = FirestoreExtension(
-            tap=self,
-            config=self.config.get("firestore_extension", {}),
-        ).initialize()
+        ext_config = self.config.get("firestore_extension")
+        if not ext_config or not ext_config.get("enabled", False):
+            return main_streams
 
-        return extension.filter_main_streams(main_streams) + extension.discover_streams(main_streams)
+        extension = FirestoreExtension(tap=self, config=ext_config).initialize()
+        return [
+            *extension.filter_main_streams(main_streams),
+            *extension.discover_streams(main_streams),
+        ]
+
+    def sync_all(self):
+        ext_config = self.config.get("firestore_extension")
+        extension = None
+        full_sync_streams = []
+        if ext_config and ext_config.get("enabled", False):
+            extension = FirestoreExtension(tap=self, config=ext_config)
+            full_sync_streams = extension.apply_runtime_selection(self.streams)
+
+        super().sync_all()
+
+        if extension and full_sync_streams:
+            extension.write_post_full_sync_bookmarks(full_sync_streams)
 ```
 
-Host taps usually nest this package's config under a `firestore_extension` key, then pass that nested object to `FirestoreExtension`.
+Host taps usually nest this package's config under a `firestore_extension` key, then pass that nested object to `FirestoreExtension`. The `enabled` flag is a host-tap convention; `FirestoreExtension` itself only receives the nested config once the host has decided to enable it.
+
+Host streams referenced in `tap_streams` must expose `name`, `schema`, and `primary_keys`.
 
 Example host config:
 
@@ -253,6 +271,7 @@ Example host config:
 {
   "api_key": "host-api-key",
   "firestore_extension": {
+    "enabled": true,
     "tenant_uuid": "tenant-1",
     "firestore_project_id": "my-firebase-project",
     "firestore_private_key_id": "key-id",
@@ -280,6 +299,46 @@ At runtime, the extension uses receiver state to decide whether to run the host 
 - A stream listed in top-level state `force_full_sync` will use the host stream even if receiver state exists.
 
 After a full sync, the host tap should call `write_post_full_sync_bookmarks(full_sync_streams)` so future runs can switch to Firestore receiver streams.
+
+Example state to force specific streams back to the host API for one run:
+
+```json
+{
+  "force_full_sync": ["orders", "products"]
+}
+```
+
+### Example Picqer mapping
+
+For a Picqer host tap, webhook receiver streams commonly map like this:
+
+| Webhook event(s) | Suggested stream | Notes |
+| --- | --- | --- |
+| `products.changed` | `receiver_products` / `products` entity | Mirror of `ProductsStream`. |
+| `products.free_stock_changed` | `stock` or `deleted_orders` style `receiver_only` stream | Minimal schema/payload stream when it does not match a host stream exactly. |
+| `orders.status_changed` | `receiver_orders` / `orders` entity | Mirror of `OrdersStream`. |
+| `purchase_orders.changed`, `purchase_orders.purchased`, `purchase_orders.created` | `receiver_purchaseorders` / `purchaseorders` entity | Mirror of `PurchaseOrdersStream`. |
+| `receipts.completed`, `receipts.product_received`, `receipts.product_reverted` | `receiver_receipts` / `receipts` entity | Mirror of `ReceiptsStream`. |
+
+Example config fragment:
+
+```json
+{
+  "collection_name": "picqer_changes",
+  "tap_streams": {
+    "products": {"entity_type": "receiver_products", "schema_mode": "inherit"},
+    "orders": {"entity_type": "receiver_orders", "schema_mode": "inherit"},
+    "purchaseorders": {"entity_type": "receiver_purchaseorders", "schema_mode": "inherit"},
+    "receipts": {"entity_type": "receiver_receipts", "schema_mode": "inherit"}
+  },
+  "receiver_only": {
+    "stock": {
+      "entity_type": "receiver_stock",
+      "schema_mode": "minimal"
+    }
+  }
+}
+```
 
 ## Development
 
