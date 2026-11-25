@@ -2,8 +2,9 @@
 
 from typing import Dict, List
 
-from singer_sdk import Stream, Tap
-from singer_sdk import typing as th
+from hotglue_singer_sdk import Stream, Tap
+from hotglue_singer_sdk import typing as th
+from hotglue_singer_sdk.helpers.capabilities import AlertingLevel
 
 from tap_firestore.extension import FirestoreExtension
 
@@ -12,6 +13,8 @@ class TapFirestore(Tap):
     """Direct Firestore tap wrapper using explicit stream config."""
 
     name = "tap-firestore"
+    alerting_level = AlertingLevel.WARNING
+    dynamic_catalog = True
 
     config_jsonschema = th.PropertiesList(
         th.Property(
@@ -28,11 +31,13 @@ class TapFirestore(Tap):
         # Firebase service account — only fields actually used by google-auth
         th.Property("project_id", th.StringType, required=False),
         th.Property("private_key_id", th.StringType, required=False),
-        th.Property("private_key", th.StringType, required=False),
+        th.Property("private_key", th.CustomType({"type": "string", "secret": True})),
         th.Property("client_email", th.StringType, required=False),
         th.Property("firestore_project_id", th.StringType, required=False),
         th.Property("firestore_private_key_id", th.StringType, required=False),
-        th.Property("firestore_private_key", th.StringType, required=False),
+        th.Property(
+            "firestore_private_key", th.CustomType({"type": "string", "secret": True})
+        ),
         th.Property("firestore_client_email", th.StringType, required=False),
         th.Property(
             "token_uri",

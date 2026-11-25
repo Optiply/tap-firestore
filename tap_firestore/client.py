@@ -4,8 +4,8 @@ import json
 from datetime import datetime
 from typing import Any, Iterable, Optional, Tuple, Union
 
-from singer_sdk.plugin_base import PluginBase as TapBaseClass
-from singer_sdk.streams import Stream
+from hotglue_singer_sdk.plugin_base import PluginBase as TapBaseClass
+from hotglue_singer_sdk.streams import Stream
 
 from tap_firestore.serializer import to_json_safe
 
@@ -82,7 +82,7 @@ class ChangesStream(Stream):
     @property
     def stream_state(self) -> dict:
         """Return writable state using the configured bookmark namespace."""
-        from singer_sdk.helpers._state import get_writeable_state_dict
+        from hotglue_singer_sdk.helpers._state import get_writeable_state_dict
 
         return get_writeable_state_dict(self.tap_state, self.state_stream_name)
 
@@ -90,7 +90,7 @@ class ChangesStream(Stream):
         """Return writable state for the configured bookmark namespace."""
         state_partition_context = self._get_state_partition_context(context)
         if state_partition_context:
-            from singer_sdk.helpers._state import get_writeable_state_dict
+            from hotglue_singer_sdk.helpers._state import get_writeable_state_dict
 
             return get_writeable_state_dict(
                 self.tap_state,

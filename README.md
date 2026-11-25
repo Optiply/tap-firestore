@@ -1,6 +1,6 @@
 # tap-firestore
 
-`tap-firestore` is a Singer tap and reusable Singer SDK extension for reading receiver change events from Google Firestore.
+`tap-firestore` is a Singer tap and reusable Hotglue Singer SDK extension for reading receiver change events from Google Firestore.
 
 The main use case is mirroring selected streams from another tap through Firestore. It can also be run directly when stream schemas are provided in config.
 
@@ -37,7 +37,7 @@ Before syncing receiver streams, the tap validates that `tenants/{tenant_uuid}` 
 From this repository:
 
 ```bash
-pipx install git+https://github.com/mariocostaoptiply/tap-firestore.git
+pipx install 'git+https://github.com/mariocostaoptiply/tap-firestore.git@pilot/hotglue-sdk'
 ```
 
 For local development:
@@ -47,6 +47,12 @@ pipx install poetry
 poetry install
 poetry run tap-firestore --help
 ```
+
+This pilot uses `hotglue-singer-sdk==1.0.54` (Apache-2.0). Host taps must use the
+same SDK rather than mixing `singer_sdk` and `hotglue_singer_sdk` stream classes.
+Existing `receiver_*` stream names and `received_at` bookmarks are unchanged; do
+not reset state when testing the pilot. The CLI enables warning-level Hotglue
+exception reporting; deployed job-notification behavior still needs a tenant pilot.
 
 ## Configuration
 

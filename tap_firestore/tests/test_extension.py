@@ -6,8 +6,8 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-from singer_sdk import Stream, Tap
-from singer_sdk import typing as th
+from hotglue_singer_sdk import Stream, Tap
+from hotglue_singer_sdk import typing as th
 
 from tap_firestore.client import coerce_record_to_schema
 from tap_firestore.extension import FirestoreExtension
