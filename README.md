@@ -54,6 +54,10 @@ Existing `receiver_*` stream names and `received_at` bookmarks are unchanged; do
 not reset state when testing the pilot. The CLI enables warning-level Hotglue
 exception reporting; deployed job-notification behavior still needs a tenant pilot.
 
+Receiver selection requires a `replication_key_value` checkpoint, including an
+empty handoff cursor or a partition checkpoint. SDK pre-sync estimate bookkeeping
+alone must not skip the initial host API full sync.
+
 ## Configuration
 
 ### Required Firestore config

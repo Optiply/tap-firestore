@@ -179,9 +179,13 @@ class FirestoreExtension:
         )
 
     def has_firestore_state(self, stream_name: str) -> bool:
-        """Return True if receiver state exists for a stream."""
+        """Return True for a receiver checkpoint, not SDK pre-sync bookkeeping."""
         bookmarks = self.tap.state.get("bookmarks", {})
-        return self.get_prefixed_state_name(stream_name) in bookmarks
+        bookmark = bookmarks.get(self.get_prefixed_state_name(stream_name), {})
+        return "replication_key_value" in bookmark or any(
+            "replication_key_value" in partition
+            for partition in bookmark.get("partitions", [])
+        )
 
     @staticmethod
     def get_prefixed_state_name(stream_name: str) -> str:
