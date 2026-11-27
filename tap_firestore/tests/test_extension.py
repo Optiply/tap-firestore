@@ -6,8 +6,8 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-from singer_sdk import Stream, Tap
-from singer_sdk import typing as th
+from hotglue_singer_sdk import Stream, Tap
+from hotglue_singer_sdk import typing as th
 
 from tap_firestore.client import coerce_record_to_schema
 from tap_firestore.extension import FirestoreExtension
@@ -434,3 +434,39 @@ def test_runtime_selection_force_full_sync_activates_host_even_with_receiver_sta
     assert parent.selected is True
     assert receiver.selected is False
     assert full_sync_streams == ["orders"]
+
+
+def test_sdk_estimates_do_not_replace_the_initial_host_full_sync():
+    """Ignore receiver bookkeeping created before any successful synchronization."""
+    tap, extension = build_extension()
+    host = OrdersHostStream(tap=tap)
+    receiver = extension.discover_streams([host, ProductsHostStream(tap=tap)])[0]
+    tap._streams = {"orders": host, "receiver_orders": receiver}
+
+    tap._emit_estimated_record_totals_snapshot()
+    full_sync_streams = extension.apply_runtime_selection(tap.streams)
+
+    assert full_sync_streams == ["orders"]
+    assert host.selected is True
+    assert receiver.selected is False
+
+
+def test_partitioned_receiver_checkpoint_still_enables_receiver_sync():
+    """Preserve receiver mode for checkpoints held in SDK state partitions."""
+    _, extension = build_extension(
+        state={
+            "bookmarks": {
+                "receiver_orders": {
+                    "partitions": [
+                        {
+                            "context": {"warehouse": "synthetic-warehouse"},
+                            "replication_key": "received_at",
+                            "replication_key_value": "",
+                        }
+                    ]
+                }
+            }
+        }
+    )
+
+    assert extension.should_use_receiver_tap_stream("orders") is True
