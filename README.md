@@ -37,7 +37,7 @@ Before syncing receiver streams, the tap validates that `tenants/{tenant_uuid}` 
 From this repository:
 
 ```bash
-pipx install 'git+https://github.com/mariocostaoptiply/tap-firestore.git@pilot/hotglue-sdk'
+pipx install 'git+https://github.com/Optiply/tap-firestore.git'
 ```
 
 For local development:
@@ -48,11 +48,11 @@ poetry install
 poetry run tap-firestore --help
 ```
 
-This pilot uses `hotglue-singer-sdk==1.0.54` (Apache-2.0). Host taps must use the
+This package uses `hotglue-singer-sdk==1.0.54` (Apache-2.0). Host taps must use the
 same SDK rather than mixing `singer_sdk` and `hotglue_singer_sdk` stream classes.
 Existing `receiver_*` stream names and `received_at` bookmarks are unchanged; do
-not reset state when testing the pilot. The CLI enables warning-level Hotglue
-exception reporting; deployed job-notification behavior still needs a tenant pilot.
+not reset state when upgrading. The CLI enables warning-level Hotglue exception
+reporting; validate platform job notifications as part of the rollout.
 
 Receiver selection requires a `replication_key_value` checkpoint, including an
 empty handoff cursor or a partition checkpoint. SDK pre-sync estimate bookkeeping
